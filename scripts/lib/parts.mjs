@@ -16,6 +16,7 @@
 
 import { segmentFrame } from './segment.mjs';
 import { makeRegion, trackRegion, transformPoint } from './align.mjs';
+import { paint, interiorOf, fitOf } from './geom.mjs';
 
 const MERGE_DIST = 1.5; // px: where B ends up, whether A's transform or B's own
 const MERGE_ANGLE = 2; // degrees
@@ -49,6 +50,20 @@ export function buildParts(frames, { segment } = {}) {
       return { info, region, transforms: trackRegion(region, frames) };
     });
 
+  // A region that one transform cannot explain (it squashes, changes shape) is never
+  // merged: it would drag a rigid body into "deforming".
+  const byId = new Map(tracked.map((r) => [r.info.id, []]));
+  for (let p = 0; p < w * h; p++) if (byId.has(seg.labels[p])) byId.get(seg.labels[p]).push(p);
+  const covers = frames.map((_, t) => {
+    const cover = new Uint8Array(w * h);
+    for (const r of tracked) paint(cover, { bbox: r.info.bbox, origin: r.region.origin }, r.transforms[t], seg.labels, r.info.id, w, h);
+    return cover;
+  });
+  for (const r of tracked) {
+    const interior = interiorOf(byId.get(r.info.id), seg.labels, r.info.id, w, h);
+    r.deforming = fitOf({ frames, interior, origin: r.region.origin, transforms: r.transforms, covers, w, h }).kind === 'deforming';
+  }
+
   // Merge (union-find).
   const parent = tracked.map((_, i) => i);
   const find = (i) => {
@@ -57,7 +72,7 @@ export function buildParts(frames, { segment } = {}) {
   };
   for (let i = 0; i < tracked.length; i++) {
     for (let j = i + 1; j < tracked.length; j++) {
-      if (find(i) !== find(j) && moveTogether(tracked[i], tracked[j])) parent[find(j)] = find(i);
+      if (!tracked[i].deforming && !tracked[j].deforming && find(i) !== find(j) && moveTogether(tracked[i], tracked[j])) parent[find(j)] = find(i);
     }
   }
   const groups = new Map();
