@@ -19,5 +19,8 @@
     "pixelmatch": "^8.0.0",
     "playwright": "^1.65.0",
     "pngjs": "^7.0.0"
+  },
+  "optionalDependencies": {
+    "@imgly/background-removal-node": "^1.4.5"
   }
 }
