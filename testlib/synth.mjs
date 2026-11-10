@@ -10,6 +10,9 @@
 // so a positive theta turns clockwise on screen. Shapes are drawn in order, later
 // ones on top. Edges are anti-aliased (4x4 supersampling).
 
+import fs from 'node:fs';
+import { PNG } from 'pngjs';
+
 const SS = 4;
 
 function inverse(T, origin, X, Y) {
@@ -31,6 +34,10 @@ export function makeFrame(w, h, shapes) {
       for (const sh of shapes) {
         const [rx, ry, rw, rh] = sh.rect;
         const T = sh.T ?? {};
+        // quick reject: pixels farther from the origin than any point of the moved rect can be
+        const o = sh.origin ?? [rx + (rw - 1) / 2, ry + (rh - 1) / 2];
+        const reach = (T.s ?? 1) * (Math.hypot(rx + (rw - 1) / 2 - o[0], ry + (rh - 1) / 2 - o[1]) + Math.hypot(rw, rh) / 2) + Math.hypot(T.tx ?? 0, T.ty ?? 0) + 2;
+        if (Math.hypot(x - o[0], y - o[1]) > reach) continue;
         let hits = 0;
         for (let sy = 0; sy < SS; sy++) {
           for (let sx = 0; sx < SS; sx++) {
@@ -57,4 +64,15 @@ export function maskOf(frame) {
   const m = new Uint8Array(frame.w * frame.h);
   for (let p = 0; p < m.length; p++) m[p] = frame.data[p * 4 + 3] >= 128 ? 1 : 0;
   return m;
+}
+
+// Write a frame as a straight-alpha RGBA PNG file.
+export function savePng(frame, file) {
+  const png = new PNG({ width: frame.w, height: frame.h });
+  for (let p = 0; p < frame.w * frame.h; p++) {
+    const a = frame.data[p * 4 + 3];
+    for (let c = 0; c < 3; c++) png.data[p * 4 + c] = a > 0 ? Math.round((frame.data[p * 4 + c] * 255) / a) : 0;
+    png.data[p * 4 + 3] = Math.round(a);
+  }
+  fs.writeFileSync(file, PNG.sync.write(png));
 }
