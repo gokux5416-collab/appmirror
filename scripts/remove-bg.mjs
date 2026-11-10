@@ -9,7 +9,7 @@
 //   --method forces one or the other; "auto" picks by looking at the border.
 //
 // Usage:
-//   node scripts/remove-bg.mjs frame.png [--out frame-nobg.png] [--method auto|color|ml] [--tolerance 24]
+//   node scripts/remove-bg.mjs frame.png [--out frame-nobg.png] [--method auto|color|gradient|ml] [--tolerance 24]
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -42,18 +42,70 @@ export function detectSolidBackground(png, tolerance = DEFAULT_TOLERANCE) {
   return matching / border.length >= SOLID_SHARE ? color : null;
 }
 
+// Background that is a vertical gradient: its color on every row, read on the left and/or
+// right edge strips (side: 'both' | 'left' | 'right'; pick one side when the object touches
+// the other). Null when the strips are not smooth enough to be a background.
+const STRIP = 6;
+export function detectGradientBackground(png, { tolerance = DEFAULT_TOLERANCE, side = 'both' } = {}) {
+  const { width: w, height: h, data } = png;
+  const cols = [];
+  if (side !== 'right') for (let x = 0; x < Math.min(STRIP, w); x++) cols.push(x);
+  if (side !== 'left') for (let x = Math.max(0, w - STRIP); x < w; x++) cols.push(x);
+  const rows = [];
+  let matching = 0;
+  let total = 0;
+  for (let y = 0; y < h; y++) {
+    const px = cols.map((x) => (y * w + x) * 4);
+    const color = [0, 1, 2].map((ch) => Math.round(median(px.map((i) => data[i + ch]))));
+    rows.push(color);
+    for (const i of px) {
+      total++;
+      if (dist(data, i, color) <= tolerance) matching++;
+    }
+  }
+  return matching / total >= SOLID_SHARE ? rows : null;
+}
+
+// Fewest stops {y, color} that redraw the gradient within `tol` (per channel) by linear
+// interpolation: the gradient can then be written in code instead of stored as pixels.
+export function simplifyGradient(rows, tol = 2) {
+  const keep = new Set([0, rows.length - 1]);
+  for (;;) {
+    const ks = [...keep].sort((p, q) => p - q);
+    let worst = tol;
+    let at = -1;
+    for (let i = 0; i + 1 < ks.length; i++) {
+      const [a, b] = [ks[i], ks[i + 1]];
+      for (let y = a + 1; y < b; y++) {
+        const u = (y - a) / (b - a);
+        for (let ch = 0; ch < 3; ch++) {
+          const e = Math.abs(rows[a][ch] + (rows[b][ch] - rows[a][ch]) * u - rows[y][ch]);
+          if (e > worst) {
+            worst = e;
+            at = y;
+          }
+        }
+      }
+    }
+    if (at < 0) return ks.map((y) => ({ y, color: rows[y] }));
+    keep.add(at);
+  }
+}
+
 // Make every pixel connected to the border (and close to `bg`) transparent, then
 // soften the pixels at the edge of the object.
+// `bg` is one [r, g, b] (solid) or a list of [r, g, b], one per row (vertical gradient).
 function removeSolid(png, bg, tolerance) {
   const { width: w, height: h, data } = png;
   const removed = new Uint8Array(w * h);
+  const bgOf = Array.isArray(bg[0]) ? (p) => bg[(p / w) | 0] : () => bg;
 
   // 1. Flood fill from the border (4-connectivity, so it cannot leak diagonally).
   const queue = new Int32Array(w * h);
   let head = 0;
   let tail = 0;
   const push = (p) => {
-    if (!removed[p] && dist(data, p * 4, bg) <= tolerance) {
+    if (!removed[p] && dist(data, p * 4, bgOf(p)) <= tolerance) {
       removed[p] = 1;
       queue[tail++] = p;
     }
@@ -114,9 +166,9 @@ function removeSolid(png, bg, tolerance) {
     if (!edge[p]) continue;
     const q = objectColorNear(p);
     if (q < 0) continue; // thin object: keep as is
-    const fullDist = dist(data, q * 4, bg);
+    const fullDist = dist(data, q * 4, bgOf(p));
     if (fullDist <= tolerance) continue;
-    const a = Math.min(1, dist(data, p * 4, bg) / fullDist);
+    const a = Math.min(1, dist(data, p * 4, bgOf(p)) / fullDist);
     if (a < 0.98) alphas.set(p, a);
   }
 
@@ -129,7 +181,7 @@ function removeSolid(png, bg, tolerance) {
       const a = alphas.get(p);
       for (let ch = 0; ch < 3; ch++) {
         // Undo the mix with the background: pixel = a * object + (1 - a) * bg.
-        data[i + ch] = Math.max(0, Math.min(255, Math.round((data[i + ch] - (1 - a) * bg[ch]) / a)));
+        data[i + ch] = Math.max(0, Math.min(255, Math.round((data[i + ch] - (1 - a) * bgOf(p)[ch]) / a)));
       }
       data[i + 3] = Math.round(a * 255);
     }
@@ -139,14 +191,21 @@ function removeSolid(png, bg, tolerance) {
 
 export async function removeBackground(
   file,
-  { outFile, method = 'auto', tolerance = DEFAULT_TOLERANCE, bgColor: given = null } = {},
+  { outFile, method = 'auto', tolerance = DEFAULT_TOLERANCE, bgColor: given = null, side = 'both' } = {},
 ) {
   if (!file || !existsSync(file)) throw new Error(`image not found: ${file}`);
-  if (!['auto', 'color', 'ml'].includes(method)) throw new Error(`unknown method: ${method}`);
+  if (!['auto', 'color', 'gradient', 'ml'].includes(method)) throw new Error(`unknown method: ${method}`);
   const png = PNG.sync.read(readFileSync(file));
   const out = outFile ?? file.replace(/(\.png)?$/i, '-nobg.png');
 
   // A color given by the caller wins: needed when the object touches the image border.
+  if (method === 'gradient') {
+    const rows = detectGradientBackground(png, { tolerance, side });
+    if (!rows) throw new Error('the background is not a smooth vertical gradient');
+    const removedPixels = removeSolid(png, rows, tolerance);
+    writeFileSync(out, PNG.sync.write(png));
+    return { outFile: out, method: 'gradient', bgGradient: simplifyGradient(rows), width: png.width, height: png.height, removedPixels };
+  }
   const bgColor = method === 'ml' ? null : given ?? detectSolidBackground(png, tolerance);
   if (!bgColor && method === 'color') throw new Error('the background is not a solid color');
 
@@ -189,6 +248,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       method: { type: 'string', default: 'auto' },
       tolerance: { type: 'string', default: String(DEFAULT_TOLERANCE) },
       bg: { type: 'string' }, // background color r,g,b
+      side: { type: 'string', default: 'both' }, // gradient: which edge to read (both|left|right)
     },
   });
   const [file] = positionals;
@@ -201,6 +261,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     method: values.method,
     tolerance: Number(values.tolerance),
     bgColor: values.bg ? values.bg.split(',').map(Number) : null,
+    side: values.side,
   })
     .then((res) => console.log(JSON.stringify(res, null, 2)))
     .catch((err) => {

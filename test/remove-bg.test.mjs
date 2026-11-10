@@ -142,3 +142,54 @@ test('a given background color works even when the object touches the image bord
     assert.equal(alphaAt(out, 5, 5), 255, 'object kept');
   });
 });
+
+// ---- vertical gradient backgrounds -----------------------------------------
+import { detectGradientBackground, simplifyGradient } from '../scripts/remove-bg.mjs';
+
+// background: red goes 255 -> 105 from top to bottom (rows), green 140, blue 0
+const gradientBg = (y, h) => [Math.round(255 - (150 * y) / (h - 1)), 140, 0];
+
+test('detectGradientBackground reads the background color of every row', () => {
+  const h = 60;
+  const png = makePng(40, h, (x, y) => (x >= 12 && x < 28 && y >= 20 && y < 40 ? [0, 0, 255] : gradientBg(y, h)));
+  const rows = detectGradientBackground(png);
+  assert.equal(rows.length, h);
+  for (const y of [0, 20, 30, 59]) {
+    const want = gradientBg(y, h);
+    assert.ok(Math.abs(rows[y][0] - want[0]) <= 1, `row ${y}: ${rows[y]} vs ${want}`);
+  }
+});
+
+test('detectGradientBackground gives up when the border is noisy', () => {
+  const png = makePng(40, 40, (x, y) => [(x * 53 + y * 97) % 256, (x * 31 + y * 17) % 256, (x * 7 + y * 211) % 256]);
+  assert.equal(detectGradientBackground(png), null);
+});
+
+test('method "gradient" removes a gradient background and keeps the object', async () => {
+  const h = 60;
+  // the object is as orange as the background at the TOP, but sits low where the background is darker
+  const file = save('grad.png', makePng(40, h, (x, y) => (x >= 12 && x < 28 && y >= 30 && y < 50 ? [255, 140, 0] : gradientBg(y, h))));
+  const out = join(work, 'grad-out.png');
+  const res = await removeBackground(file, { outFile: out, method: 'gradient' });
+  assert.equal(res.method, 'gradient');
+  for (const [x, y] of [[2, 2], [2, 58], [37, 30], [20, 5]]) assert.equal(alphaAt(out, x, y), 0, `background at ${x},${y}`);
+  assert.equal(alphaAt(out, 20, 40), 255, 'object kept');
+});
+
+test('side "right" ignores an object that touches the left edge', async () => {
+  const h = 60;
+  const file = save('gradleft.png', makePng(40, h, (x, y) => (x < 15 && y >= 20 && y < 40 ? [0, 0, 255] : gradientBg(y, h))));
+  const out = join(work, 'gradleft-out.png');
+  await removeBackground(file, { outFile: out, method: 'gradient', side: 'right' });
+  assert.equal(alphaAt(out, 5, 30), 255, 'object on the left edge kept');
+  assert.equal(alphaAt(out, 30, 30), 0, 'background removed');
+});
+
+test('simplifyGradient keeps only the stops needed to redraw the gradient', () => {
+  const straight = Array.from({ length: 100 }, (_, y) => [255 - y, 140, 0]);
+  assert.equal(simplifyGradient(straight).length, 2);
+  const kinked = Array.from({ length: 100 }, (_, y) => [y < 50 ? 255 : 255 - (y - 50) * 3, 140, 0]);
+  const stops = simplifyGradient(kinked);
+  assert.equal(stops.length, 3);
+  assert.deepEqual(stops.map((s) => s.y), [0, 50, 99]);
+});
