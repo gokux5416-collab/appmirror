@@ -16,6 +16,7 @@
 
 import { buildParts } from './parts.mjs';
 import { paint, interiorOf, fitOf, ALPHA_MIN } from './geom.mjs';
+import { createVoter, newRec, resetRec } from './stacking.mjs';
 
 const MAX_PARTS = 12;
 const MAX_DEFORMING_SHARE = 0.5;
@@ -142,9 +143,13 @@ export function analyze(frames, { fps = 60 } = {}) {
   const interior = members.map((list, i) => interiorOf(list, labels, i, w, h));
 
   // Who covers what, frame by frame (all parts), to skip occluded pixels.
-  const covers = frames.map((_, t) => {
+  const voter = createVoter(frames[0], parts.length);
+  const rec = newRec(w * h);
+  const covers = frames.map((frame, t) => {
     const cover = new Uint8Array(w * h);
-    parts.forEach((part, i) => paint(cover, part, part.transforms[t], labels, i, w, h));
+    resetRec(rec);
+    parts.forEach((part, i) => paint(cover, part, part.transforms[t], labels, i, w, h, rec));
+    voter.add(frame, rec);
     return cover;
   });
 
@@ -162,8 +167,9 @@ export function analyze(frames, { fps = 60 } = {}) {
   // Output.
   const images = {};
   const out = [];
-  // Biggest part at the back.
-  const zOf = (i) => parts.length - 1 - i;
+  // Who is in front: from the overlaps seen in the frames (rigid parts only).
+  const z = voter.order(parts, parts.map((p) => p.kind === 'rigid'));
+  const zOf = (i) => z[i];
   const deforming = [];
   parts.forEach((part, i) => {
     const base = { id: part.id, kind: part.kind, bbox: part.bbox, origin: part.origin, zIndex: zOf(i), fit: part.fit };

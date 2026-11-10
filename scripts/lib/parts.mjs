@@ -43,22 +43,23 @@ export function buildParts(frames, { segment } = {}) {
   const seg = segmentFrame(frames[0], segment);
   const { w, h } = seg;
 
+  // Biggest regions first: once a region is tracked, the pixels it covers are "hidden"
+  // for the smaller ones, so a part sliding behind another is not misread.
+  const covers = frames.map(() => new Uint8Array(w * h));
   const tracked = seg.regions
     .filter((r) => !r.thin)
+    .sort((a, b) => b.area - a.area)
     .map((info) => {
       const region = makeRegion(frames[0], seg.mask(info.id));
-      return { info, region, transforms: trackRegion(region, frames) };
+      const transforms = trackRegion(region, frames, { hidden: covers });
+      frames.forEach((_, t) => paint(covers[t], { bbox: info.bbox, origin: region.origin }, transforms[t], seg.labels, info.id, w, h));
+      return { info, region, transforms };
     });
 
   // A region that one transform cannot explain (it squashes, changes shape) is never
   // merged: it would drag a rigid body into "deforming".
   const byId = new Map(tracked.map((r) => [r.info.id, []]));
   for (let p = 0; p < w * h; p++) if (byId.has(seg.labels[p])) byId.get(seg.labels[p]).push(p);
-  const covers = frames.map((_, t) => {
-    const cover = new Uint8Array(w * h);
-    for (const r of tracked) paint(cover, { bbox: r.info.bbox, origin: r.region.origin }, r.transforms[t], seg.labels, r.info.id, w, h);
-    return cover;
-  });
   for (const r of tracked) {
     const interior = interiorOf(byId.get(r.info.id), seg.labels, r.info.id, w, h);
     r.deforming = fitOf({ frames, interior, origin: r.region.origin, transforms: r.transforms, covers, w, h }).kind === 'deforming';

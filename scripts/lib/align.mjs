@@ -16,6 +16,7 @@ const MAX_RING_POINTS = 600;
 const GOOD_ENOUGH = 1.5; // a translation-only fit this good is accepted as is
 const RING_WIDTH = 2; // px of background around the region that must stay empty
 const ERR_CAP = 60; // per-pixel error is capped, so a few bad pixels cannot dominate
+const MIN_VISIBLE = 0.25; // with `hide`, at least this share of the points must stay visible
 const GAIN = 0.1; // an extra degree of freedom must cut the cost by 10%...
 const MIN_GAIN = 0.3; // ...and by at least this much (cost units)
 
@@ -151,7 +152,10 @@ export function makeRegion(frame0, mask) {
 
 // Mean (capped) color error between the region's frame-0 pixels moved by T and
 // what frame t shows there. 0 = perfect match.
-export function cost(region, frame, T) {
+// `hide` (optional, Uint8Array w*h): pixels of this frame already explained by other
+// regions. A sample point that lands there says nothing about this region (it may
+// simply be hidden behind the other one), so it is left out of the average.
+export function cost(region, frame, T, hide) {
   const { n, xs, ys, c0, origin } = region;
   const { w, h, data } = blurred(frame);
   const r = (T.theta * Math.PI) / 180;
@@ -160,11 +164,18 @@ export function cost(region, frame, T) {
   const ox = origin[0];
   const oy = origin[1];
   let sum = 0;
+  let counted = 0;
   for (let i = 0; i < n; i++) {
     const dx = xs[i] - ox;
     const dy = ys[i] - oy;
     const X = ox + T.tx + T.s * (c * dx - sn * dy);
     const Y = oy + T.ty + T.s * (sn * dx + c * dy);
+    if (hide) {
+      const hx = Math.round(X);
+      const hy = Math.round(Y);
+      if (hx >= 0 && hy >= 0 && hx < w && hy < h && hide[hy * w + hx] > 0) continue;
+    }
+    counted++;
     const x0 = Math.floor(X);
     const y0 = Math.floor(Y);
     const fx = X - x0;
@@ -193,15 +204,16 @@ export function cost(region, frame, T) {
     }
     sum += e > ERR_CAP ? ERR_CAP : e;
   }
-  return sum / n;
+  if (hide && counted < n * MIN_VISIBLE) return ERR_CAP; // (almost) all hidden: no information
+  return sum / counted;
 }
 
 // Pattern search: try +/- a step on each free parameter, keep what lowers the
 // cost, and shrink the steps. Binary steps (16, 8, 4, ...) land exactly on
 // whole pixels, so a pure translation by whole pixels is found exactly.
-function refine(region, frame, init, free) {
+function refine(region, frame, init, free, hide) {
   let best = { ...init };
-  let bestCost = cost(region, frame, best);
+  let bestCost = cost(region, frame, best, hide);
   for (let level = 0; level < 8; level++) {
     let improved = true;
     for (let guard = 0; improved && guard < 40; guard++) {
@@ -212,7 +224,7 @@ function refine(region, frame, init, free) {
         for (const sign of [1, -1]) {
           const cand = { ...best, [k]: best[k] + sign * step };
           if (k === 's' && cand.s <= 0.05) continue;
-          const c = cost(region, frame, cand);
+          const c = cost(region, frame, cand, hide);
           if (c < bestCost - 1e-9) {
             best = cand;
             bestCost = c;
@@ -226,10 +238,10 @@ function refine(region, frame, init, free) {
   return { ...best, cost: bestCost };
 }
 
-function bestOf(region, frame, free, starts) {
+function bestOf(region, frame, free, starts, hide) {
   let best = null;
   for (const start of starts) {
-    const r = refine(region, frame, start, free);
+    const r = refine(region, frame, start, free, hide);
     if (!best || r.cost < best.cost) best = r;
   }
   return best;
@@ -243,13 +255,15 @@ const round = (v, digits) => Math.round(v * 10 ** digits) / 10 ** digits;
 // Nested models: translation only, then + rotation, then + scale. An extra
 // degree of freedom is kept only if it clearly lowers the error, so a pure
 // translation comes out with rotation exactly 0 and scale exactly 1.
-export function trackRegion(region, frames) {
+// `hidden[t]` (optional) is the `hide` mask of frame t, see cost().
+export function trackRegion(region, frames, { hidden } = {}) {
   const raw = [{ ...IDENTITY, cost: cost(region, frames[0], IDENTITY) }];
   for (let t = 1; t < frames.length; t++) {
     const prev = raw[t - 1];
     const frame = frames[t];
+    const hide = hidden?.[t];
 
-    let best = refine(region, frame, { tx: prev.tx, ty: prev.ty, theta: 0, s: 1 }, ['tx', 'ty']);
+    let best = refine(region, frame, { tx: prev.tx, ty: prev.ty, theta: 0, s: 1 }, ['tx', 'ty'], hide);
 
     // Most of the time translation alone explains the frame: nothing more to try.
     // (An object that already rotated or scaled before keeps being tried.)
@@ -264,13 +278,13 @@ export function trackRegion(region, frames) {
     const withRotation = bestOf(region, frame, ['tx', 'ty', 'theta'], [
       { tx: prev.tx, ty: prev.ty, theta: prev.theta, s: 1 },
       { tx: best.tx, ty: best.ty, theta: 0, s: 1 },
-    ]);
+    ], hide);
     if (better(withRotation, best)) best = withRotation;
 
     const withScale = bestOf(region, frame, ['tx', 'ty', 'theta', 's'], [
       { tx: prev.tx, ty: prev.ty, theta: prev.theta, s: prev.s },
       { tx: best.tx, ty: best.ty, theta: best.theta, s: prev.s },
-    ]);
+    ], hide);
     if (better(withScale, best)) best = withScale;
 
     raw.push(best);

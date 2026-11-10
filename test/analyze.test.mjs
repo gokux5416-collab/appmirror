@@ -76,3 +76,27 @@ test('when most of the mascot deforms, the whole animation falls back to frame b
   assert.equal(out.parts[0].frames.length, 10);
   assert.ok(out.images[out.parts[0].frames[0].png], 'every frame has an image');
 });
+
+
+test('a part that slides behind the body is drawn behind it', () => {
+  const fs = frames(10, (k) => [
+    { rect: [120, 90, 60, 20], color: RED, T: { tx: -2 * k } }, // first = underneath
+    { rect: [60, 60, 80, 80], color: BLUE },
+  ]);
+  const out = analyze(fs, { fps: 60 });
+  assert.equal(out.fallback, false);
+  const body = out.parts.find((p) => p.bbox[2] === 80);
+  const arm = out.parts.find((p) => p.bbox[2] !== 80);
+  assert.ok(arm.zIndex < body.zIndex, `arm z ${arm.zIndex} should be below body z ${body.zIndex}`);
+});
+
+test('a part that slides over the body is drawn in front of it', () => {
+  const fs = frames(10, (k) => [
+    { rect: [60, 60, 80, 80], color: BLUE },
+    { rect: [120, 90, 60, 20], color: RED, T: { tx: -2 * k } }, // last = on top
+  ]);
+  const out = analyze(fs, { fps: 60 });
+  const body = out.parts.find((p) => p.bbox[2] === 80);
+  const arm = out.parts.find((p) => p.bbox[2] !== 80);
+  assert.ok(arm.zIndex > body.zIndex, `arm z ${arm.zIndex} should be above body z ${body.zIndex}`);
+});

@@ -32,7 +32,9 @@ export function inverse(T, o, X, Y) {
 
 // Mark (count) the pixels of frame t covered by `part` moved by T. Inverse mapping,
 // so there are no holes. cover is a Uint8Array w*h.
-export function paint(cover, part, T, labels, index, w, h) {
+// `rec` (optional) remembers the first two parts that cover each pixel and which
+// frame-0 pixel each one shows there: { ownA, srcA, ownB, srcB } Int32Arrays (-1 = none).
+export function paint(cover, part, T, labels, index, w, h, rec) {
   const [bx, by, bw, bh] = part.bbox;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const [cx, cy] of [[bx - 0.5, by - 0.5], [bx + bw - 0.5, by - 0.5], [bx - 0.5, by + bh - 0.5], [bx + bw - 0.5, by + bh - 0.5]]) {
@@ -50,7 +52,13 @@ export function paint(cover, part, T, labels, index, w, h) {
       const ix = Math.round(sx);
       const iy = Math.round(sy);
       if (ix < 0 || iy < 0 || ix >= w || iy >= h) continue;
-      if (labels[iy * w + ix] === index && cover[Y * w + X] < 255) cover[Y * w + X]++;
+      if (labels[iy * w + ix] !== index) continue;
+      const d = Y * w + X;
+      if (rec) {
+        if (cover[d] === 0) { rec.ownA[d] = index; rec.srcA[d] = iy * w + ix; }
+        else if (cover[d] === 1) { rec.ownB[d] = index; rec.srcB[d] = iy * w + ix; }
+      }
+      if (cover[d] < 255) cover[d]++;
     }
   }
 }
