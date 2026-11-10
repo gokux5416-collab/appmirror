@@ -1,0 +1,79 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=390,initial-scale=1">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{width:390px;height:844px;overflow:hidden;background:#f2f2f7;font-family:-apple-system,"Helvetica Neue",Arial,sans-serif;color:#111}
+.screen{position:absolute;inset:0;background:#f2f2f7;transition:transform .32s cubic-bezier(.3,.7,.2,1);padding-top:56px}
+.screen.right{transform:translateX(100%)}
+.screen.left{transform:translateX(-30%)}
+h1{font-size:34px;font-weight:700;padding:12px 20px 10px}
+.nav{height:44px;display:flex;align-items:center;padding:0 8px;color:#007aff;font-size:17px;position:absolute;top:56px;left:0;right:0}
+.nav b{position:absolute;left:0;right:0;text-align:center;color:#111;font-weight:600}
+.search{margin:0 16px 18px;height:36px;border-radius:10px;background:#e3e3e8;color:#8a8a8e;font-size:17px;line-height:36px;padding-left:12px}
+.group{margin:0 16px 22px;background:#fff;border-radius:12px;overflow:hidden}
+.row{height:48px;display:flex;align-items:center;padding:0 14px;font-size:17px;position:relative}
+.row+.row::before{content:"";position:absolute;top:0;left:52px;right:0;height:1px;background:#e5e5ea}
+.row.plain+.row.plain::before{left:14px}
+.ico{width:30px;height:30px;border-radius:7px;margin-right:12px;flex:none}
+.val{margin-left:auto;color:#8a8a8e}
+.chev{margin-left:8px;color:#c4c4c7;font-size:20px}
+.row .val+.chev{margin-left:6px}
+.sw{margin-left:auto;width:51px;height:31px;border-radius:16px;background:#e5e5ea;position:relative;transition:background .22s}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.25);transition:transform .22s}
+.sw.on{background:#34c759}.sw.on::after{transform:translateX(20px)}
+.foot{margin:-14px 32px 20px;font-size:13px;color:#8a8a8e}
+.nets{overflow:hidden;transition:max-height .3s ease,opacity .3s;max-height:300px}
+.nets.off{max-height:0;opacity:0}
+.check{margin-left:auto;color:#007aff;font-size:20px}
+</style></head><body>
+<div id="home" class="screen">
+  <h1>Settings</h1>
+  <div class="search">Search</div>
+  <div class="group">
+    <div class="row" data-go="wifi"><div class="ico" style="background:#007aff"></div>Wi-Fi<span class="val">Home</span><span class="chev">›</span></div>
+    <div class="row"><div class="ico" style="background:#5856d6"></div>Bluetooth<span class="val">On</span><span class="chev">›</span></div>
+    <div class="row"><div class="ico" style="background:#34c759"></div>Cellular<span class="chev" style="margin-left:auto">›</span></div>
+  </div>
+  <div class="group">
+    <div class="row" data-go="notif"><div class="ico" style="background:#ff3b30"></div>Notifications<span class="chev" style="margin-left:auto">›</span></div>
+    <div class="row"><div class="ico" style="background:#ff2d55"></div>Sounds<span class="chev" style="margin-left:auto">›</span></div>
+    <div class="row"><div class="ico" style="background:#5856d6"></div>Focus<span class="chev" style="margin-left:auto">›</span></div>
+  </div>
+  <div class="group">
+    <div class="row"><div class="ico" style="background:#8e8e93"></div>General<span class="chev" style="margin-left:auto">›</span></div>
+    <div class="row"><div class="ico" style="background:#007aff"></div>Display<span class="chev" style="margin-left:auto">›</span></div>
+    <div class="row"><div class="ico" style="background:#ff9500"></div>Battery<span class="chev" style="margin-left:auto">›</span></div>
+  </div>
+</div>
+<div id="wifi" class="screen right">
+  <div class="nav" data-back>‹ Settings<b>Wi-Fi</b></div>
+  <div style="height:56px"></div>
+  <div class="group"><div class="row plain">Wi-Fi<div class="sw on" id="wifisw"></div></div></div>
+  <div class="nets" id="nets">
+    <div class="foot" style="margin:0 32px 8px;text-transform:uppercase">Networks</div>
+    <div class="group">
+      <div class="row plain">Home<span class="check">✓</span></div>
+      <div class="row plain">Cafe Guest</div>
+      <div class="row plain">Office 5G</div>
+    </div>
+  </div>
+</div>
+<div id="notif" class="screen right">
+  <div class="nav" data-back>‹ Settings<b>Notifications</b></div>
+  <div style="height:56px"></div>
+  <div class="group">
+    <div class="row plain">Allow Notifications<div class="sw on" id="notifsw1"></div></div>
+    <div class="row plain">Badges<div class="sw on"></div></div>
+    <div class="row plain">Sounds<div class="sw"></div></div>
+  </div>
+  <div class="foot">Choose which apps can send you alerts.</div>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const stack=['home'];
+function go(id){const cur=stack[stack.length-1];$('#'+cur).classList.add('left');$('#'+id).classList.remove('right');stack.push(id)}
+function back(){const cur=stack.pop();const prev=stack[stack.length-1];$('#'+cur).classList.add('right');$('#'+prev).classList.remove('left')}
+document.querySelectorAll('[data-go]').forEach(e=>e.onclick=()=>go(e.dataset.go));
+document.querySelectorAll('[data-back]').forEach(e=>e.onclick=back);
+document.querySelectorAll('.sw').forEach(e=>e.onclick=ev=>{ev.stopPropagation();e.classList.toggle('on');if(e.id==='wifisw')$('#nets').classList.toggle('off',!e.classList.contains('on'))});
+</script></body></html>

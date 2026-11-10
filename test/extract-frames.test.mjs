@@ -77,6 +77,36 @@ test('detects a small change (about 7% of the screen) with the default threshold
   assert.deepEqual(res.scenes.map((s) => s.timeMs), [0, 1000]);
 });
 
+test('detects a slow slide (each frame changes little) as ONE scene change', async () => {
+  // A white block slides across a black screen from 1.0 s on, 30 fps.
+  // Frame to frame the change is about 3 %, far below a 0.1 scene score.
+  const slide = join(work, 'slide.mp4');
+  execFileSync(ffmpegPath, [
+    '-y', '-loglevel', 'error',
+    '-f', 'lavfi', '-i', 'color=black:s=160x288:d=2:r=30',
+    '-f', 'lavfi', '-i', 'color=white:s=80x144:d=2:r=30',
+    '-filter_complex', "[0:v][1:v]overlay=x='if(gte(t,1),-80+(t-1)*300,-80)':y=0,format=yuv420p",
+    slide,
+  ]);
+  const res = await extractFrames({ video: slide, outDir: join(work, 'slide-out') });
+  assert.equal(res.scenes.length, 2, 'the whole slide is one event, not one scene per frame');
+  assert.ok(res.scenes[1].timeMs >= 1000 && res.scenes[1].timeMs <= 1100, `got ${res.scenes[1].timeMs}`);
+});
+
+test('gives a settled frame (after the movement stops) for every scene', async () => {
+  const slide = join(work, 'slide.mp4');
+  const res = await extractFrames({ video: slide, outDir: join(work, 'settled-out') });
+  assert.equal(res.scenes.length, 2);
+  const s = res.scenes[1];
+  // the block is fully out of the screen at about 1.8 s
+  assert.ok(s.settledMs >= 1750, `settled at ${s.settledMs}`);
+  assert.ok(existsSync(s.settledFile), 'settled frame should exist');
+  assert.match(s.settledFile, /settled_\d{6}ms\.png$/);
+  // for an instant change (red to blue) the settled frame is just after the change
+  const instant = await extractFrames({ video, outDir: join(work, 'settled-instant') });
+  assert.equal(instant.scenes[1].settledMs, 1100);
+});
+
 test('writes a contact sheet image', async () => {
   const out = join(work, 'sheet');
   const res = await extractFrames({ video, outDir: out });

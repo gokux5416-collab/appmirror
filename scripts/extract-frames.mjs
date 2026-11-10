@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Step 1 of appmirror: split a screen recording into frames.
 //
-// Default mode: one frame per scene change (+ the first frame), every frame of
-// the video during the 600 ms transition that follows each change (the step can
-// be set with --step), and a contact sheet.
+// Default mode: one frame per scene change (+ the first frame; a slow slide counts
+// as one change), the "settled" frame of each change (the screen once the movement
+// has stopped: the reference to compare the clone with), every frame of the video
+// during the 600 ms transition that follows each change (the step can be set with
+// --step), and a contact sheet of the settled frames.
 // Full mode (--full): every frame of a time range, optionally cropped to a zone
 // (used by step 2b to capture complex animations).
 //
@@ -23,7 +25,13 @@ import ffmpegPath from 'ffmpeg-static';
 const run = promisify(execFile);
 const MAX_BUFFER = 64 * 1024 * 1024;
 const TRANSITION_MS = 600; // window after a scene change
-const SCENE_THRESHOLD = 0.1; // low on purpose: catches small button animations
+// Scene score of a single frame pair. Very low on purpose: a screen sliding in or
+// a switch flipping changes only 1 to 7 % per frame, so the old 0.1 missed them.
+const SCENE_THRESHOLD = 0.004;
+// Detections closer than this belong to the same event (one slide = one scene).
+const EVENT_GAP_MS = 300;
+// The screen is considered at rest this long after the last detected movement.
+const SETTLE_MS = 100;
 
 const pad = (n, width) => String(n).padStart(width, '0');
 const secs = (ms) => (ms / 1000).toFixed(3);
@@ -52,13 +60,23 @@ async function probe(video) {
   };
 }
 
-async function sceneChangeTimesMs(video, threshold) {
+async function sceneEvents(video, threshold) {
   const { stderr } = await ffmpeg([
     '-i', video,
     '-vf', `select='gt(scene,${threshold})',showinfo`,
     '-an', '-f', 'null', '-',
   ]);
-  return [...stderr.matchAll(/pts_time:(\d+(?:\.\d+)?)/g)].map((m) => Math.round(Number(m[1]) * 1000));
+  const times = [...stderr.matchAll(/pts_time:(\d+(?:\.\d+)?)/g)].map((m) => Math.round(Number(m[1]) * 1000));
+  // Group detections into events. The first frame (0 ms) is always an event, so
+  // detections right after it (page load flash) are absorbed into it.
+  const events = [{ startMs: 0, endMs: 0 }];
+  let last = 0;
+  for (const t of times) {
+    if (t - last > EVENT_GAP_MS) events.push({ startMs: t, endMs: t });
+    else events[events.length - 1].endMs = t;
+    last = t;
+  }
+  return events;
 }
 
 const cropFilter = (crop) => (crop ? `crop=${crop.w}:${crop.h}:${crop.x}:${crop.y}` : null);
@@ -103,9 +121,8 @@ export async function extractFrames({
 
   // By default keep every frame of the video during a transition.
   const stepMs = transitionStepMs ?? 1000 / fps;
-  const changes = [0, ...(await sceneChangeTimesMs(videoPath, sceneThreshold))].filter(
-    (t) => t >= startMs && t <= to,
-  );
+  const events = (await sceneEvents(videoPath, sceneThreshold)).filter((e) => e.startMs >= startMs && e.startMs <= to);
+  const changes = events.map((e) => e.startMs);
 
   const scenes = [];
   const transitions = [];
@@ -113,7 +130,13 @@ export async function extractFrames({
   for (const t of changes) {
     const file = join(out, `scene_${pad(t, 6)}ms.png`);
     await grabFrame(videoPath, t, file, crop);
-    scenes.push({ file, timeMs: t });
+    // Settled frame: the screen once the movement has stopped (reference for comparisons).
+    const ev = events.find((e) => e.startMs === t);
+    const lastFrameMs = Math.max(0, Math.round(durationMs - 1000 / fps));
+    const settledMs = Math.min(ev.endMs + SETTLE_MS, lastFrameMs, to);
+    const settledFile = join(out, `settled_${pad(settledMs, 6)}ms.png`);
+    await grabFrame(videoPath, settledMs, settledFile, crop);
+    scenes.push({ file, timeMs: t, settledFile, settledMs });
     for (let k = 1; k * stepMs <= TRANSITION_MS + 1e-6; k++) {
       const tt = Math.round(t + k * stepMs);
       if (tt >= to || seen.has(tt)) continue;
@@ -126,7 +149,7 @@ export async function extractFrames({
   transitions.sort((a, b) => a.timeMs - b.timeMs);
 
   const contactSheet = join(out, 'contact-sheet.png');
-  await makeSheet(scenes.map((s) => s.file), contactSheet, 180);
+  await makeSheet(scenes.map((s) => s.settledFile), contactSheet, 180);
 
   // One sheet per transition, so Claude can see a whole animation at a glance.
   const transitionSheets = [];
