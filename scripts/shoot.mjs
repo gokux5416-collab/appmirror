@@ -4,11 +4,13 @@
 //   screens:   one capture per screen of app-map.json
 //   animation: captures of one animation at exact instants. The browser clock is
 //              paused and advanced by hand, so "t = 500 ms" really means 500 ms
-//              after the page finished loading, whatever the machine speed.
+//              after the page finished loading (or after the click, with --click),
+//              whatever the machine speed.
 //
 // Usage:
 //   node scripts/shoot.mjs screens --base-url http://localhost:8081 --map app-map.json [--out captures]
-//   node scripts/shoot.mjs animation --url http://localhost:8081/ --id mascot --times 0,33,67 [--clip x,y,w,h] [--out captures]
+//   node scripts/shoot.mjs animation --url http://localhost:8081/ --id mascot --times 0,33,67 [--clip x,y,w,h] [--click selector] [--out captures]
+//   (--click takes a Playwright selector, e.g. 'text="Wi-Fi"'; t = 0 is then the click)
 //
 // A screen is opened at "/" if its id is "home" or "index", else at "/<id>".
 
@@ -78,6 +80,7 @@ export async function shootAnimation({
   times,
   outDir = './captures',
   clip,
+  click,
   width = WIDTH,
   height = HEIGHT,
   scale = 1,
@@ -102,6 +105,9 @@ export async function shootAnimation({
         if (!/past/i.test(String(e)) || margin > 1000) throw e;
       }
     }
+
+    // Triggered animation (a screen sliding in after a tap): t = 0 is the click.
+    if (click) await page.locator(click).first().click();
 
     const results = [];
     let elapsed = 0;
@@ -130,6 +136,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       id: { type: 'string', default: 'animation' },
       times: { type: 'string' },
       clip: { type: 'string' },
+      click: { type: 'string' },
       out: { type: 'string', default: './captures' },
     },
   });
@@ -137,7 +144,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const usage = () => {
     console.error(
       'Usage:\n  node scripts/shoot.mjs screens --base-url <url> --map app-map.json [--out dir]\n' +
-        '  node scripts/shoot.mjs animation --url <url> --id <name> --times 0,33,67 [--clip x,y,w,h] [--out dir]',
+        '  node scripts/shoot.mjs animation --url <url> --id <name> --times 0,33,67 [--clip x,y,w,h] [--click selector] [--out dir]',
     );
     process.exit(2);
   };
@@ -160,6 +167,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       id: values.id,
       times: values.times.split(',').map(Number),
       clip,
+      click: values.click,
       outDir: values.out,
     });
   } else {

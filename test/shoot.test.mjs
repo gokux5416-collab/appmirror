@@ -25,6 +25,23 @@ const PAGES = {
       }
       requestAnimationFrame(f);
     </script>`,
+  // Nothing moves until #go is clicked; then a red square moves right at 100 px/s.
+  '/click-anim': `<body style="margin:0;background:#fff">
+    <div id="go" style="position:absolute;top:300px;left:0;width:60px;height:30px;background:#0a0"></div>
+    <div id="s" style="display:none;position:absolute;top:90px;left:0;width:30px;height:30px;background:#f00"></div>
+    <script>
+      document.getElementById('go').onclick = () => {
+        const sq = document.getElementById('s');
+        sq.style.display = 'block';
+        let start = null;
+        function f(ts) {
+          if (start === null) start = ts;
+          sq.style.left = ((ts - start) / 10) + 'px';
+          requestAnimationFrame(f);
+        }
+        requestAnimationFrame(f);
+      };
+    </script>`,
 };
 
 let server;
@@ -128,4 +145,22 @@ test('fails with a clear message when a page returns an error', async () => {
     /404/,
   );
   assert.equal(existsSync(join(work, 'err', 'missing.png')), false);
+});
+
+test('an animation can start with a click: t = 0 is the moment of the click', async () => {
+  const res = await shootAnimation({
+    url: `${base}/click-anim`,
+    id: 'clicked',
+    click: '#go',
+    times: [0, 500, 1000],
+    outDir: join(work, 'click'),
+  });
+  const at = (i) => {
+    const png = readPng(res[i].file);
+    for (let x = 0; x < 300; x++) if (pixel(png, x, 105)[0] === 255 && pixel(png, x, 105)[1] === 0) return x;
+    return -1;
+  };
+  assert.ok(at(0) >= 0 && at(0) < 10, `at 0 ms: ${at(0)}`);
+  assert.ok(Math.abs(at(1) - 50) <= 6, `at 500 ms: ${at(1)}`);
+  assert.ok(Math.abs(at(2) - 100) <= 6, `at 1000 ms: ${at(2)}`);
 });

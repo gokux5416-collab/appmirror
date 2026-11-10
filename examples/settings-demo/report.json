@@ -1,0 +1,93 @@
+{
+  "title": "Settings",
+  "average": 99.92666666666666,
+  "screens": [
+    {
+      "id": "home",
+      "score": 99.95
+    },
+    {
+      "id": "wifi",
+      "score": 99.93
+    },
+    {
+      "id": "notifications",
+      "score": 99.9
+    }
+  ],
+  "animations": [
+    {
+      "id": "home-to-wifi",
+      "scores": [
+        {
+          "timeMs": 0,
+          "score": 95.88
+        },
+        {
+          "timeMs": 33,
+          "score": 95.68
+        },
+        {
+          "timeMs": 67,
+          "score": 97.77
+        },
+        {
+          "timeMs": 100,
+          "score": 97.91
+        },
+        {
+          "timeMs": 133,
+          "score": 98.08
+        },
+        {
+          "timeMs": 167,
+          "score": 98.05
+        },
+        {
+          "timeMs": 200,
+          "score": 98.21
+        },
+        {
+          "timeMs": 233,
+          "score": 98.31
+        },
+        {
+          "timeMs": 267,
+          "score": 98.54
+        },
+        {
+          "timeMs": 300,
+          "score": 98.44
+        },
+        {
+          "timeMs": 333,
+          "score": 98.76
+        },
+        {
+          "timeMs": 367,
+          "score": 99.93
+        },
+        {
+          "timeMs": 400,
+          "score": 99.93
+        },
+        {
+          "timeMs": 433,
+          "score": 99.93
+        },
+        {
+          "timeMs": 467,
+          "score": 99.93
+        },
+        {
+          "timeMs": 500,
+          "score": 99.93
+        },
+        {
+          "timeMs": 533,
+          "score": 99.93
+        }
+      ]
+    }
+  ]
+}

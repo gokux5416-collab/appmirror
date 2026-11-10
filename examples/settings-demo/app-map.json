@@ -1,0 +1,61 @@
+{
+  "app": {
+    "name": "Settings",
+    "theme": {
+      "colors": { "background": "#f2f2f7", "card": "#ffffff", "text": "#111111", "muted": "#8a8a8e", "separator": "#e5e5ea", "accent": "#007aff", "switchOn": "#34c759", "searchBar": "#e3e3e8" },
+      "fonts": ["system sans-serif (looks like Inter)"]
+    }
+  },
+  "screens": [
+    {
+      "id": "home",
+      "frame": "frames/settled_000267ms.png",
+      "elements": [
+        { "type": "text", "label": "Settings (large title)", "box": [20, 70, 140, 40] },
+        { "type": "input", "label": "Search", "box": [16, 119, 358, 36] },
+        { "type": "list", "label": "Connectivity", "box": [16, 174, 358, 144] },
+        { "type": "list", "label": "Alerts", "box": [16, 340, 358, 144] },
+        { "type": "list", "label": "System", "box": [16, 505, 358, 144] }
+      ],
+      "interactions": [
+        { "on": "Wi-Fi", "action": "navigate", "target": "wifi" },
+        { "on": "Notifications", "action": "navigate", "target": "notifications" }
+      ]
+    },
+    {
+      "id": "wifi",
+      "frame": "frames/settled_002333ms.png",
+      "elements": [
+        { "type": "button", "label": "‹ Settings (back)", "box": [8, 100, 100, 44] },
+        { "type": "text", "label": "Wi-Fi (title)", "box": [150, 100, 90, 44] },
+        { "type": "list", "label": "Wi-Fi switch", "box": [16, 156, 358, 48] },
+        { "type": "list", "label": "Networks", "box": [16, 230, 358, 144] }
+      ],
+      "interactions": [
+        { "on": "‹ Settings (back)", "action": "navigate", "target": "home" },
+        { "on": "Wi-Fi switch", "action": "toggle", "target": "networks list shows or hides" }
+      ]
+    },
+    {
+      "id": "notifications",
+      "frame": "frames/settled_007900ms.png",
+      "elements": [
+        { "type": "button", "label": "‹ Settings (back)", "box": [8, 100, 100, 44] },
+        { "type": "text", "label": "Notifications (title)", "box": [130, 100, 130, 44] },
+        { "type": "list", "label": "Switches", "box": [16, 156, 358, 144] }
+      ],
+      "interactions": [
+        { "on": "Allow Notifications", "action": "toggle" },
+        { "on": "Badges", "action": "toggle" },
+        { "on": "Sounds", "action": "toggle" }
+      ]
+    }
+  ],
+  "transitions": [
+    { "from": "home", "to": "wifi", "type": "slide", "durationMs": 320 },
+    { "from": "wifi", "to": "home", "type": "slide", "durationMs": 320 },
+    { "from": "home", "to": "notifications", "type": "slide", "durationMs": 320 },
+    { "from": "notifications", "to": "home", "type": "slide", "durationMs": 320 }
+  ],
+  "animations": []
+}
