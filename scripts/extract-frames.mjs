@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Step 1 of appmirror: split a screen recording into frames.
 //
-// Default mode: one frame per scene change (+ the first frame), one frame every
-// 100 ms during the transition that follows each change, and a contact sheet.
+// Default mode: one frame per scene change (+ the first frame), every frame of
+// the video during the 600 ms transition that follows each change (the step can
+// be set with --step), and a contact sheet.
 // Full mode (--full): every frame of a time range, optionally cropped to a zone
 // (used by step 2b to capture complex animations).
 //
@@ -22,8 +23,7 @@ import ffmpegPath from 'ffmpeg-static';
 const run = promisify(execFile);
 const MAX_BUFFER = 64 * 1024 * 1024;
 const TRANSITION_MS = 600; // window after a scene change
-const TRANSITION_STEP_MS = 100;
-const SCENE_THRESHOLD = 0.3;
+const SCENE_THRESHOLD = 0.1; // low on purpose: catches small button animations
 
 const pad = (n, width) => String(n).padStart(width, '0');
 const secs = (ms) => (ms / 1000).toFixed(3);
@@ -78,6 +78,7 @@ export async function extractFrames({
   endMs,
   crop,
   sceneThreshold = SCENE_THRESHOLD,
+  transitionStepMs,
 }) {
   if (!video || !existsSync(video)) throw new Error(`video not found: ${video}`);
   const videoPath = resolve(video);
@@ -100,6 +101,8 @@ export async function extractFrames({
     return { fps, frames };
   }
 
+  // By default keep every frame of the video during a transition.
+  const stepMs = transitionStepMs ?? 1000 / fps;
   const changes = [0, ...(await sceneChangeTimesMs(videoPath, sceneThreshold))].filter(
     (t) => t >= startMs && t <= to,
   );
@@ -111,8 +114,8 @@ export async function extractFrames({
     const file = join(out, `scene_${pad(t, 6)}ms.png`);
     await grabFrame(videoPath, t, file, crop);
     scenes.push({ file, timeMs: t });
-    for (let dt = TRANSITION_STEP_MS; dt <= TRANSITION_MS; dt += TRANSITION_STEP_MS) {
-      const tt = t + dt;
+    for (let k = 1; k * stepMs <= TRANSITION_MS + 1e-6; k++) {
+      const tt = Math.round(t + k * stepMs);
       if (tt >= to || seen.has(tt)) continue;
       seen.add(tt);
       const tf = join(out, `trans_${pad(tt, 6)}ms.png`);
@@ -123,19 +126,33 @@ export async function extractFrames({
   transitions.sort((a, b) => a.timeMs - b.timeMs);
 
   const contactSheet = join(out, 'contact-sheet.png');
-  const cols = Math.min(6, scenes.length);
-  const rows = Math.ceil(scenes.length / cols);
-  const inputs = scenes.flatMap((s) => ['-i', s.file]);
-  const labels = scenes.map((_, i) => `[${i}:v]scale=180:-1[s${i}]`).join(';');
-  const stack = scenes.map((_, i) => `[s${i}]`).join('');
-  // xstack needs at least 2 inputs; a single scene is just a scaled copy.
-  const graph =
-    scenes.length === 1
-      ? '[0:v]scale=180:-1'
-      : `${labels};${stack}xstack=inputs=${scenes.length}:layout=${gridLayout(scenes.length, cols)}`;
-  await ffmpeg(['-y', '-loglevel', 'error', ...inputs, '-filter_complex', graph, '-frames:v', '1', contactSheet]);
+  await makeSheet(scenes.map((s) => s.file), contactSheet, 180);
 
-  return { scenes, transitions, contactSheet, rows, cols };
+  // One sheet per transition, so Claude can see a whole animation at a glance.
+  const transitionSheets = [];
+  for (const s of scenes) {
+    const frames = transitions.filter((t) => t.timeMs > s.timeMs && t.timeMs <= s.timeMs + TRANSITION_MS);
+    if (frames.length === 0) continue;
+    const file = join(out, `transition-sheet_${pad(s.timeMs, 6)}ms.png`);
+    await makeSheet([s.file, ...frames.map((f) => f.file)], file, 120);
+    transitionSheets.push({ file, timeMs: s.timeMs });
+  }
+
+  return { scenes, transitions, contactSheet, transitionSheets };
+}
+
+// Tile images into one sheet (6 columns max, tiles `tileWidth` px wide).
+async function makeSheet(files, outFile, tileWidth) {
+  const n = files.length;
+  const cols = Math.min(6, n);
+  const inputs = files.flatMap((f) => ['-i', f]);
+  // xstack needs at least 2 inputs; a single image is just a scaled copy.
+  const graph =
+    n === 1
+      ? `[0:v]scale=${tileWidth}:-1`
+      : `${files.map((_, i) => `[${i}:v]scale=${tileWidth}:-1[s${i}]`).join(';')};` +
+        `${files.map((_, i) => `[s${i}]`).join('')}xstack=inputs=${n}:layout=${gridLayout(n, cols)}`;
+  await ffmpeg(['-y', '-loglevel', 'error', ...inputs, '-filter_complex', graph, '-frames:v', '1', outFile]);
 }
 
 // xstack layout string for a cols-wide grid of 180px-wide tiles.
@@ -162,6 +179,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       end: { type: 'string' },
       crop: { type: 'string' },
       scene: { type: 'string', default: String(SCENE_THRESHOLD) },
+      step: { type: 'string' }, // transition step in ms (default: every frame)
     },
   });
   const [video] = positionals;
@@ -182,6 +200,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     endMs: values.end === undefined ? undefined : Number(values.end),
     crop,
     sceneThreshold: Number(values.scene),
+    transitionStepMs: values.step === undefined ? undefined : Number(values.step),
   })
     .then((res) => console.log(JSON.stringify(res, null, 2)))
     .catch((err) => {

@@ -47,11 +47,50 @@ test('captures a frame every 100 ms during the transition after each scene chang
   for (const t of res.transitions) assert.ok(existsSync(t.file), `${t.file} should exist`);
 });
 
+test('by default captures every frame of the video during a transition (30 fps)', async () => {
+  const fast = join(work, 'fast.mp4');
+  execFileSync(ffmpegPath, [
+    '-y', '-loglevel', 'error',
+    '-filter_complex',
+    'color=red:s=160x288:d=1:r=30[a];color=blue:s=160x288:d=1:r=30[b];[a][b]concat=n=2:v=1:a=0,format=yuv420p',
+    fast,
+  ]);
+  const res = await extractFrames({ video: fast, outDir: join(work, 'fast-out') });
+  const window = res.transitions.map((t) => t.timeMs).filter((t) => t > 1000 && t <= 1600);
+  assert.equal(window.length, 18); // 600 ms at 30 fps
+});
+
+test('transition step can be set by hand', async () => {
+  const res = await extractFrames({ video, outDir: join(work, 'step'), transitionStepMs: 200 });
+  const window = res.transitions.map((t) => t.timeMs).filter((t) => t > 1000 && t <= 1600);
+  assert.deepEqual(window, [1200, 1400, 1600]);
+});
+
+test('detects a small change (about 7% of the screen) with the default threshold', async () => {
+  const medium = join(work, 'medium.mp4');
+  execFileSync(ffmpegPath, [
+    '-y', '-loglevel', 'error', '-f', 'lavfi',
+    '-i', "color=black:s=160x288:d=2:r=10,drawbox=x=0:y=0:w=160:h=20:color=white:t=fill:enable='gte(t,1)'",
+    '-pix_fmt', 'yuv420p', medium,
+  ]);
+  const res = await extractFrames({ video: medium, outDir: join(work, 'medium-out') });
+  assert.deepEqual(res.scenes.map((s) => s.timeMs), [0, 1000]);
+});
+
 test('writes a contact sheet image', async () => {
   const out = join(work, 'sheet');
   const res = await extractFrames({ video, outDir: out });
   assert.ok(res.contactSheet.endsWith('contact-sheet.png'));
   assert.ok(existsSync(res.contactSheet));
+});
+
+test('writes one contact sheet per transition', async () => {
+  const res = await extractFrames({ video, outDir: join(work, 'tsheets') });
+  assert.deepEqual(res.transitionSheets.map((s) => s.timeMs), [0, 1000, 2000]);
+  for (const s of res.transitionSheets) {
+    assert.ok(existsSync(s.file), `${s.file} should exist`);
+    assert.match(s.file, /transition-sheet_\d{6}ms\.png$/);
+  }
 });
 
 test('full mode keeps every frame of a time range, cropped to a zone', async () => {
