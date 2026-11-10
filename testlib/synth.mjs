@@ -36,7 +36,8 @@ export function makeFrame(w, h, shapes) {
           for (let sx = 0; sx < SS; sx++) {
             const X = x - 0.5 + (sx + 0.5) / SS;
             const Y = y - 0.5 + (sy + 0.5) / SS;
-            const [px, py] = inverse(T, sh.origin ?? [rx + rw / 2, ry + rh / 2], X, Y);
+            // default origin = center of the rect (pixel i covers [i - 0.5, i + 0.5))
+            const [px, py] = inverse(T, sh.origin ?? [rx + (rw - 1) / 2, ry + (rh - 1) / 2], X, Y);
             // pixel (i, j) covers [i - 0.5, i + 0.5) in index coordinates
             if (px >= rx - 0.5 && px < rx + rw - 0.5 && py >= ry - 0.5 && py < ry + rh - 0.5) hits++;
           }
