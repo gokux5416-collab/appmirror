@@ -1,0 +1,9 @@
+{
+  "name": "appmirror",
+  "version": "0.1.0",
+  "description": "Film a mobile app. Get a working Expo clone.",
+  "author": { "name": "Tahar Antit" },
+  "license": "MIT",
+  "repository": "https://github.com/gokux5416-collab/appmirror",
+  "keywords": ["expo", "react-native", "claude-code", "plugin", "video", "clone"]
+}

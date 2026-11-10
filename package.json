@@ -1,0 +1,15 @@
+{
+  "name": "appmirror",
+  "version": "0.1.0",
+  "description": "Film a mobile app. Get a working Expo clone. Claude Code plugin.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gokux5416-collab/appmirror.git"
+  },
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test"
+  }
+}
