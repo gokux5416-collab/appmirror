@@ -15,11 +15,13 @@
 // frame ("fallback"): always correct, just heavier.
 
 import { buildParts } from './parts.mjs';
-import { paint, interiorOf, fitOf, ALPHA_MIN } from './geom.mjs';
+import { paint, interiorOf, fitOf, recompositionShares, ALPHA_MIN } from './geom.mjs';
 import { createVoter, newRec, resetRec } from './stacking.mjs';
 
 const MAX_PARTS = 12;
 const MAX_DEFORMING_SHARE = 0.5;
+const RECOMPOSE_MEDIAN = 0.05; // rebuilt vs real: typical frame...
+const RECOMPOSE_WORST = 0.15; // ...and worst frame
 // keyframe simplification tolerances
 const TOL_PX = 0.5;
 const TOL_DEG = 0.5;
@@ -164,11 +166,21 @@ export function analyze(frames, { fps = 60 } = {}) {
     return wholeAnimation(frames, fps, `most of the animation deforms (${Math.round((100 * deformingArea) / total)}%)`);
   }
 
+  // Who is in front: from the overlaps seen in the frames (rigid parts only).
+  const z = voter.order(parts, parts.map((p) => p.kind === 'rigid'));
+
+  // Safety net: put the rigid parts back where they were tracked and compare with the real frames.
+  const shares = recompositionShares({ frames, parts, labels, z, hasDeforming: parts.some((p) => p.kind === 'deforming'), w, h });
+  const sorted = [...shares].sort((x, y) => x - y);
+  const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
+  const worst = sorted.length ? sorted[sorted.length - 1] : 0;
+  if (median > RECOMPOSE_MEDIAN || worst > RECOMPOSE_WORST) {
+    return wholeAnimation(frames, fps, `recomposition does not match the frames (typical ${(100 * median).toFixed(1)}%, worst ${(100 * worst).toFixed(1)}%)`);
+  }
+
   // Output.
   const images = {};
   const out = [];
-  // Who is in front: from the overlaps seen in the frames (rigid parts only).
-  const z = voter.order(parts, parts.map((p) => p.kind === 'rigid'));
   const zOf = (i) => z[i];
   const deforming = [];
   parts.forEach((part, i) => {

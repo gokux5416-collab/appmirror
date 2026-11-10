@@ -100,3 +100,22 @@ test('a part that slides over the body is drawn in front of it', () => {
   const arm = out.parts.find((p) => p.bbox[2] !== 80);
   assert.ok(arm.zIndex > body.zIndex, `arm z ${arm.zIndex} should be above body z ${body.zIndex}`);
 });
+
+test('content that appears from nowhere and no part can explain makes the animation fall back', () => {
+  const fs = frames(10, (k) => [
+    { rect: [60, 60, 80, 80], color: BLUE },
+    ...(k >= 2 ? [{ rect: [150, 150, 40, 40], color: RED }] : []),
+  ]);
+  const out = analyze(fs, { fps: 60 });
+  assert.equal(out.fallback, true);
+  assert.match(out.reason, /recompos/i);
+});
+
+test('a few pixels of unexplained content do not trigger the fallback', () => {
+  const fs = frames(10, (k) => [
+    { rect: [60, 60, 80, 80], color: BLUE },
+    ...(k >= 2 ? [{ rect: [150, 150, 10, 10], color: RED }] : []),
+  ]);
+  const out = analyze(fs, { fps: 60 });
+  assert.equal(out.fallback, false);
+});

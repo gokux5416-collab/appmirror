@@ -30,11 +30,9 @@ export function inverse(T, o, X, Y) {
   return [o[0] + c * ux + s * uy, o[1] - s * ux + c * uy];
 }
 
-// Mark (count) the pixels of frame t covered by `part` moved by T. Inverse mapping,
-// so there are no holes. cover is a Uint8Array w*h.
-// `rec` (optional) remembers the first two parts that cover each pixel and which
-// frame-0 pixel each one shows there: { ownA, srcA, ownB, srcB } Int32Arrays (-1 = none).
-export function paint(cover, part, T, labels, index, w, h, rec) {
+// Calls visit(d, src) for every pixel d of frame t covered by `part` moved by T, with
+// src the frame-0 pixel it shows there. Inverse mapping, so there are no holes.
+export function forEachCovered(part, T, labels, index, w, h, visit) {
   const [bx, by, bw, bh] = part.bbox;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const [cx, cy] of [[bx - 0.5, by - 0.5], [bx + bw - 0.5, by - 0.5], [bx - 0.5, by + bh - 0.5], [bx + bw - 0.5, by + bh - 0.5]]) {
@@ -52,15 +50,22 @@ export function paint(cover, part, T, labels, index, w, h, rec) {
       const ix = Math.round(sx);
       const iy = Math.round(sy);
       if (ix < 0 || iy < 0 || ix >= w || iy >= h) continue;
-      if (labels[iy * w + ix] !== index) continue;
-      const d = Y * w + X;
-      if (rec) {
-        if (cover[d] === 0) { rec.ownA[d] = index; rec.srcA[d] = iy * w + ix; }
-        else if (cover[d] === 1) { rec.ownB[d] = index; rec.srcB[d] = iy * w + ix; }
-      }
-      if (cover[d] < 255) cover[d]++;
+      if (labels[iy * w + ix] === index) visit(Y * w + X, iy * w + ix);
     }
   }
+}
+
+// Mark (count) the pixels of frame t covered by `part` moved by T. cover is a Uint8Array w*h.
+// `rec` (optional) remembers the first two parts that cover each pixel and which
+// frame-0 pixel each one shows there: { ownA, srcA, ownB, srcB } Int32Arrays (-1 = none).
+export function paint(cover, part, T, labels, index, w, h, rec) {
+  forEachCovered(part, T, labels, index, w, h, (d, src) => {
+    if (rec) {
+      if (cover[d] === 0) { rec.ownA[d] = index; rec.srcA[d] = src; }
+      else if (cover[d] === 1) { rec.ownB[d] = index; rec.srcB[d] = src; }
+    }
+    if (cover[d] < 255) cover[d]++;
+  });
 }
 
 // Bilinear sample of a premultiplied RGBA frame (pixel i is centered on i). Outside = transparent.
@@ -124,4 +129,39 @@ export function fitOf({ frames, interior, origin, transforms, covers, w, h }) {
   shares.sort((a, b) => a - b);
   const fit = { median: round(quantile(shares, 0.5), 1000), p90: round(quantile(shares, 0.9), 1000) };
   return { fit, kind: fit.median <= RIGID_MEDIAN && fit.p90 <= RIGID_P90 ? 'rigid' : 'deforming' };
+}
+
+// How far is "rigid parts put back at their tracked places" from the real frames?
+// For each frame after the first, the share of the mascot (frame-0 area) where the
+// rebuilt picture differs from the real one. Pixels no rigid part draws but the real
+// frame has are errors too, unless a deforming part is there to deliver them.
+// parts: [{ kind, bbox, origin, transforms }], z[i] = stacking (0 = back).
+export function recompositionShares({ frames, parts, labels, z, hasDeforming, w, h }) {
+  const area = Math.max(1, frames[0].data.reduce((n, _, i) => (i % 4 === 3 && frames[0].data[i] >= ALPHA_MIN ? n + 1 : n), 0));
+  const order = parts.map((_, i) => i).filter((i) => parts[i].kind === 'rigid').sort((a, b) => z[a] - z[b]);
+  const f0 = frames[0].data;
+  const shares = [];
+  const drawn = new Uint8Array(w * h);
+  const rendered = new Float32Array(w * h * 4);
+  for (let t = 1; t < frames.length; t++) {
+    drawn.fill(0);
+    for (const i of order) {
+      forEachCovered(parts[i], parts[i].transforms[t], labels, i, w, h, (d, src) => {
+        drawn[d] = 1;
+        for (let c = 0; c < 4; c++) rendered[d * 4 + c] = f0[src * 4 + c];
+      });
+    }
+    const real = frames[t].data;
+    let bad = 0;
+    for (let p = 0; p < w * h; p++) {
+      const realOn = real[p * 4 + 3] >= ALPHA_MIN;
+      if (drawn[p]) {
+        let d = 0;
+        for (let c = 0; c < 4; c++) d = Math.max(d, Math.abs(rendered[p * 4 + c] - real[p * 4 + c]));
+        if (d > MISMATCH_COLOR) bad++;
+      } else if (realOn && !hasDeforming) bad++;
+    }
+    shares.push(bad / area);
+  }
+  return shares;
 }
