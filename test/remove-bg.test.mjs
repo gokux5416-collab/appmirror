@@ -131,3 +131,14 @@ test('refuses method "color" when the background is not solid', async () => {
 test('fails with a clear message when the image does not exist', async () => {
   await assert.rejects(removeBackground(join(work, 'nope.png')), /image not found/i);
 });
+
+test('a given background color works even when the object touches the image border', () => {
+  // orange background, a blue object that runs off the top-left edges
+  const file = save('touching.png', makePng(40, 40, (x, y) => (x < 20 && y < 20 ? [0, 0, 255] : [252, 137, 0])));
+  const out = join(work, 'touching-out.png');
+  return removeBackground(file, { outFile: out, method: 'color', bgColor: [252, 137, 0] }).then((res) => {
+    assert.deepEqual(res.bgColor, [252, 137, 0]);
+    assert.equal(alphaAt(out, 35, 35), 0, 'background removed');
+    assert.equal(alphaAt(out, 5, 5), 255, 'object kept');
+  });
+});

@@ -139,14 +139,15 @@ function removeSolid(png, bg, tolerance) {
 
 export async function removeBackground(
   file,
-  { outFile, method = 'auto', tolerance = DEFAULT_TOLERANCE } = {},
+  { outFile, method = 'auto', tolerance = DEFAULT_TOLERANCE, bgColor: given = null } = {},
 ) {
   if (!file || !existsSync(file)) throw new Error(`image not found: ${file}`);
   if (!['auto', 'color', 'ml'].includes(method)) throw new Error(`unknown method: ${method}`);
   const png = PNG.sync.read(readFileSync(file));
   const out = outFile ?? file.replace(/(\.png)?$/i, '-nobg.png');
 
-  const bgColor = method === 'ml' ? null : detectSolidBackground(png, tolerance);
+  // A color given by the caller wins: needed when the object touches the image border.
+  const bgColor = method === 'ml' ? null : given ?? detectSolidBackground(png, tolerance);
   if (!bgColor && method === 'color') throw new Error('the background is not a solid color');
 
   if (!bgColor) {
@@ -187,14 +188,20 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       out: { type: 'string' },
       method: { type: 'string', default: 'auto' },
       tolerance: { type: 'string', default: String(DEFAULT_TOLERANCE) },
+      bg: { type: 'string' }, // background color r,g,b
     },
   });
   const [file] = positionals;
   if (!file) {
-    console.error('Usage: node scripts/remove-bg.mjs image.png [--out out.png] [--method auto|color|ml] [--tolerance 24]');
+    console.error('Usage: node scripts/remove-bg.mjs image.png [--out out.png] [--method auto|color|ml] [--tolerance 24] [--bg r,g,b]');
     process.exit(2);
   }
-  removeBackground(file, { outFile: values.out, method: values.method, tolerance: Number(values.tolerance) })
+  removeBackground(file, {
+    outFile: values.out,
+    method: values.method,
+    tolerance: Number(values.tolerance),
+    bgColor: values.bg ? values.bg.split(',').map(Number) : null,
+  })
     .then((res) => console.log(JSON.stringify(res, null, 2)))
     .catch((err) => {
       console.error(err.message);

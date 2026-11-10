@@ -91,8 +91,17 @@ export async function shootAnimation({
     await page.clock.install({ time: 0 });
     await open(page, url, 'load');
     // Freeze time: t = 0 is the moment the page finished loading.
-    const now = await page.evaluate(() => Date.now());
-    await page.clock.pauseAt(now + 1);
+    // The page clock keeps running while we ask for the pause, so the moment we read may
+    // already be in the past by the time pauseAt runs: retry with a bigger margin.
+    for (let margin = 1; ; margin *= 10) {
+      const now = await page.evaluate(() => Date.now());
+      try {
+        await page.clock.pauseAt(now + margin);
+        break;
+      } catch (e) {
+        if (!/past/i.test(String(e)) || margin > 1000) throw e;
+      }
+    }
 
     const results = [];
     let elapsed = 0;
